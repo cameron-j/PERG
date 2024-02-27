@@ -5,6 +5,9 @@ from scipy.signal import butter, filtfilt
 import datetime
 import random
 
+FILTER_ORDER = 10
+FILTER_CUTOFF = 0.95
+
 participants_df = pd.read_csv("dataset/csv/participants_info.csv")
 
 def str_to_datetime(datetime_str):
@@ -15,7 +18,7 @@ def str_to_datetime(datetime_str):
     return datetime.datetime(int(date_lst[0]), int(date_lst[1]), int(date_lst[2]), int(time_lst[0]), int(time_lst[1]), int(time_lst[2]), int(time_lst[3]))
 
 class Record:
-    def __init__(self, id):
+    def __init__(self, id, read_data=True):
         data = participants_df[participants_df["id_record"]==id]
         self.id = id
         self.date = data["date"].to_string(index=False)
@@ -36,6 +39,9 @@ class Record:
         self.comments = data["comments"].to_string(index=False)
         if self.comments == "NaN":
             self.comments = None
+
+        if read_data:
+            self.times, self.re, self.le = self.read_PERG()
 
     def __repr__(self):
         return f"""RECORD {self.id}:
@@ -79,15 +85,25 @@ class Record:
             le.append(test_le)
         return np.array(times), np.array(re), np.array(le)
 
+
+def filter_data(data):
+    b, a = butter(FILTER_ORDER, FILTER_CUTOFF, btype="lowpass")
+    return filtfilt(b, a, data)
+
 for record_id in range(1, len(participants_df)+1):
     print(record_id)
     record = Record(record_id)
     if record.diagnoses == ["Normal"]:
         print(record)
-        times, re, le = record.read_PERG()
-        avg_times = np.array(list(map(np.average, times.T)))
-        avg_re = np.array(list(map(np.average, re.T)))
-        avg_le = np.array(list(map(np.average, le.T)))
+
+        # Filters the data
+        filtered_re = np.array([filter_data(record.re[i]) for i in range(len(record.times))])
+        filtered_le = np.array([filter_data(record.le[i]) for i in range(len(record.times))])
+
+        # Averages the data
+        avg_times = np.array(list(map(np.average, record.times.T)))
+        avg_re = np.array(list(map(np.average, filtered_re.T)))
+        avg_le = np.array(list(map(np.average, filtered_le.T)))
 
         plt.plot(avg_times, avg_re, label="Right eye")
         plt.plot(avg_times, avg_le, label="Left eye")
