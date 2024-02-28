@@ -5,8 +5,10 @@ from scipy.signal import butter, filtfilt
 import datetime
 import random
 
-FILTER_ORDER = 10
+FILTER_ORDER = 12
 FILTER_CUTOFF = 0.95
+
+RESPONSE_ONSET_RATIO = 0.25 # Amplitude multiplied by this value gives the value of the response onset
 
 participants_df = pd.read_csv("dataset/csv/participants_info.csv")
 
@@ -90,22 +92,98 @@ def filter_data(data):
     b, a = butter(FILTER_ORDER, FILTER_CUTOFF, btype="lowpass")
     return filtfilt(b, a, data)
 
-for record_id in range(1, len(participants_df)+1):
-    print(record_id)
-    record = Record(record_id)
-    if record.diagnoses == ["Normal"]:
-        print(record)
 
-        # Filters the data
-        filtered_re = np.array([filter_data(record.re[i]) for i in range(len(record.times))])
-        filtered_le = np.array([filter_data(record.le[i]) for i in range(len(record.times))])
+class WaveformData:
+    def __init__(self, times, data):
+        self.times = times
+        self.data = filter_data(data)
 
-        # Averages the data
-        avg_times = np.array(list(map(np.average, record.times.T)))
-        avg_re = np.array(list(map(np.average, filtered_re.T)))
-        avg_le = np.array(list(map(np.average, filtered_le.T)))
+        # Finds the implicit times (stimulus onset to maximum amplitude)
+        P50_idx = np.where(data==max(data))[0][0]
+        N35_idx = np.where(data==min(data[:P50_idx]))[0][0]
+        N95_idx = np.where(data==min(data[P50_idx:]))[0][0]
+        self.P50_implicit_t = times[P50_idx]
+        self.N35_implicit_t = times[N35_idx]
+        self.N95_implicit_t = times[N95_idx]
 
-        plt.plot(avg_times, avg_re, label="Right eye")
-        plt.plot(avg_times, avg_le, label="Left eye")
-        plt.legend()
-        plt.show()
+        # Finds the response amplitudes
+        self.P50_A = self.data[P50_idx] - self.data[N35_idx]
+        self.N95_A = self.data[P50_idx] - self.data[N95_idx]
+
+        # Finds the latency (stimulus onset to response onset)
+        i = 0
+        while i < len(self.data) - 1 and self.data[i] > self.data[N35_idx] * RESPONSE_ONSET_RATIO:
+            i += 1
+        N35_onset_idx = i
+
+        i = N35_idx
+        while i < len(self.data) - 1 and self.data[i] - self.data[N35_idx] < self.P50_A * RESPONSE_ONSET_RATIO: # P50 latency
+            i += 1
+        P50_onset_idx = i
+
+        i = P50_idx
+        while i < len(self.data) - 1 and self.data[P50_idx] - self.data[i] < self.N95_A * RESPONSE_ONSET_RATIO: # N95 latency
+            i += 1
+        N95_onset_idx = i
+
+        self.N35_latency = times[N35_onset_idx]
+        self.P50_latency = times[P50_onset_idx]
+        self.N95_latency = times[N95_onset_idx]
+
+
+    def __repr__(self):
+        return f"""Waveform:
+    Implicit times:
+        N35: {self.N35_implicit_t}
+        P50: {self.P50_implicit_t}
+        N95: {self.N95_implicit_t}
+    Amplitudes:
+        P50: {self.P50_A}
+        N95: {self.N95_A}
+    Latencies
+        N35: {self.N35_latency}
+        P50: {self.P50_latency}
+        N95: {self.N95_latency}"""
+
+
+def check_times_equal(times):
+    t0 = times[0]
+    for time in times:
+        if not((time == t0).all()):
+            return False
+    return True
+
+
+def main():
+    for record_id in range(1, len(participants_df)+1):
+        record = Record(record_id)
+        if check_times_equal(record.times):
+            try:
+                if input("\t>").lower() == "q":
+                    return
+
+                print(record)
+
+                # Averages the data
+                avg_re = np.array(list(map(np.average, record.re.T)))
+                # avg_le = np.array(list(map(np.average, record.le.T)))
+
+                print("Right Eye ", end="")
+                re = WaveformData(record.times[0], avg_re)
+                # le = WaveformData(record.times[0], avg_le)
+                print(re)
+
+                plt.plot(re.times, re.data, label="Right eye")
+                plt.axvline(re.N35_implicit_t, color="red")
+                plt.axvline(re.P50_implicit_t, color="red")
+                plt.axvline(re.N95_implicit_t, color="red")
+                plt.axvline(re.N35_latency, color="purple")
+                plt.axvline(re.P50_latency, color="purple")
+                plt.axvline(re.N95_latency, color="purple")
+                plt.legend()
+                plt.show()
+            except:
+                print("Failed:", record.id)
+
+if __name__ == "__main__":
+    main()
