@@ -3,16 +3,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import butter, filtfilt
 import datetime
-import random
 
 FILTER_ORDER = 12
 FILTER_CUTOFF = 0.95
 
-N35_IMPLICIT_T_ERROR = 0.35 # Maximum allowable deviation from normal implicit times
-P50_IMPLICIT_T_ERROR = 0.25 # Maximum allowable deviation from normal implicit times
-N95_IMPLICIT_T_ERROR = 0.5 # Maximum allowable deviation from normal implicit times
+N35_IMPLICIT_T_ERROR = 0.4 # Maximum allowable deviation from normal implicit times
+P50_IMPLICIT_T_ERROR = 0.5 # Maximum allowable deviation from normal implicit times
+N95_IMPLICIT_T_ERROR = 1 # Maximum allowable deviation from normal implicit times
 
-RESPONSE_ONSET_RATIO = 0.25 # Amplitude multiplied by this value gives the value of the response onset
+RESPONSE_ONSET_RATIO = 0.2 # Amplitude multiplied by this value gives the value of the response onset
 
 participants_df = pd.read_csv("dataset/csv/participants_info.csv")
 
@@ -114,7 +113,7 @@ class WaveformData:
         self.N95_implicit_t = times[N95_idx]
 
         # Finds the response amplitudes
-        self.N35_A = -self.data[N35_idx]
+        self.N35_A = abs(self.data[N35_idx])
         self.P50_A = self.data[P50_idx] - self.data[N35_idx]
         self.N95_A = self.data[P50_idx] - self.data[N95_idx]
 
@@ -146,6 +145,7 @@ class WaveformData:
         P50: {self.P50_implicit_t}
         N95: {self.N95_implicit_t}
     Amplitudes:
+        N35: {self.N35_A}
         P50: {self.P50_A}
         N95: {self.N95_A}
     Latencies
@@ -185,49 +185,23 @@ def write_normal_records():
         record = Record(record_id)
         if check_times_equal(record.times):
             try:
-                # if input("\t>").lower() == "q":
-                #     return
-
-                # print(record)
-
                 # Averages the data
                 avg_re = np.array(list(map(np.average, record.re.T)))
                 avg_le = np.array(list(map(np.average, record.le.T)))
                 re = WaveformData(record.times[0], avg_re)
                 le = WaveformData(record.times[0], avg_le)
 
-                # print("Right Eye ", end="")
-                # print(re)
-                # print("Left Eye ", end="")
-                # print(le)
-
+                # Checks that the data fits the normal pattern
                 if check_normal_data(re) and check_normal_data(le):
                     print("Normal data: ", record.id)
                     normal_records.append(record.id)
                 else:
                     print("Abnormal data: ", record.id)
 
-                # plt.plot(re.times, re.data, label="Right eye")
-                # plt.axvline(re.N35_implicit_t, color="red")
-                # plt.axvline(re.P50_implicit_t, color="red")
-                # plt.axvline(re.N95_implicit_t, color="red")
-                # plt.axvline(re.N35_latency, color="orange")
-                # plt.axvline(re.P50_latency, color="orange")
-                # plt.axvline(re.N95_latency, color="orange")
-
-                # plt.plot(le.times, le.data, label="Left eye")
-                # plt.axvline(le.N35_implicit_t, color="blue")
-                # plt.axvline(le.P50_implicit_t, color="blue")
-                # plt.axvline(le.N95_implicit_t, color="blue")
-                # plt.axvline(le.N35_latency, color="purple")
-                # plt.axvline(le.P50_latency, color="purple")
-                # plt.axvline(le.N95_latency, color="purple")
-                # plt.legend()
-                # plt.show()
-
             except Exception as _:
                 print("Failed:", record.id)
 
+    # Writes the ids of records with normal ids to the file
     normal_records_f = open("normal_record_ids.txt", "w")
     normal_records_str = ""
     for record in normal_records:
@@ -235,11 +209,40 @@ def write_normal_records():
     normal_records_f.write(normal_records_str[:-1])
     normal_records_f.close()
 
-def main():
+def plot_waveform(data: WaveformData, ax, label=""):
+    ax.plot(data.times, data.data, label=label)
+    # Implicit times
+    ax.axvline(x=data.N35_implicit_t, color="red")
+    ax.axvline(data.P50_implicit_t, color="red")
+    ax.axvline(data.N95_implicit_t, color="red")
+    # Latencies
+    ax.axvline(x=data.N35_latency, color="green")
+    ax.axvline(data.P50_latency, color="green")
+    ax.axvline(data.N95_latency, color="green")
+
+def read_normal_data():
+    # Reads normal data records from file
     normal_records_f = open("normal_record_ids.txt", "r")
-    normal_record_ids = normal_records_f.read().split(" ")
+    normal_record_ids = map(int, normal_records_f.read().split(" "))
     normal_records_f.close()
-    print(normal_record_ids)
+    return normal_record_ids
+
+def main():
+    for record_id in read_normal_data():
+        fig, ax = plt.subplots()
+        r = Record(record_id)
+        avg_re = np.array(list(map(np.average, r.re.T)))
+        avg_le = np.array(list(map(np.average, r.le.T)))
+
+        re = WaveformData(r.times[0], avg_re)
+        le = WaveformData(r.times[0], avg_le)
+
+        print(re)
+        print(le)
+        plot_waveform(re, ax, label="Right eye")
+        plot_waveform(le, ax, label="Left eye")
+        plt.legend()
+        plt.show()
 
 if __name__ == "__main__":
-    main()
+    write_normal_records()
